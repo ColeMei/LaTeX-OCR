@@ -164,7 +164,15 @@ final class ScreenCapturePermissionManager: ObservableObject {
             }
 
         case .transientError:
-            if hadPermissionBefore || shouldSuppressAutomaticDialog {
+            if userInitiated {
+                // Explicit user action should always be allowed to trigger a fresh system dialog.
+                // If verification still fails, clear stale "verified" state so future checks don't over-trust it.
+                Logger.log(.info, "Transient permission check failure during user-initiated recheck; showing system dialog.")
+                if hadPermissionBefore {
+                    defaults.set(false, forKey: verifiedPermissionKey)
+                }
+                showSystemDialogIfCooldownExpired(userInitiated: true)
+            } else if hadPermissionBefore || shouldSuppressAutomaticDialog {
                 // On modern macOS, permission checks can fail transiently even after prior prompt/verification.
                 // Poll silently until the system catches up instead of repeatedly showing dialogs.
                 Logger.log(.info, "Transient permission check failure; polling silently instead of showing another automatic dialog.")
