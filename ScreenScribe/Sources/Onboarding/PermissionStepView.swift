@@ -131,7 +131,7 @@ struct PermissionStepView: View {
                 Button(action: {
                     Task {
                         isCheckingPermission = true
-                        await permissionManager.requestPermissionAndStartMonitoring()
+                        await permissionManager.requestPermissionAndStartMonitoring(userInitiated: true)
                         isCheckingPermission = false
                     }
                 }) {
