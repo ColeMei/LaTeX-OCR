@@ -50,15 +50,15 @@ final class App: NSObject, NSApplicationDelegate {
     private var pasteboardObserver: Timer?
     private var pasteboardChangeCount = 0
     private var settingsWindowController: SettingsWindowController?
-    private var onboardingWindowController: OnboardingWindowController?
     private let settingsManager = SettingsManager.shared
-    private let onboardingManager = OnboardingManager.shared
     private let historyManager = HistoryManager.shared
     private let promptManager = PromptManager.shared
     private lazy var permissionManager = ScreenCapturePermissionManager.shared
 
     private var isExtracting = false
+    private var isRequestingPermission = false
     private var isFullySetup = false
+    private var isShortcutMonitoringSetup = false
     private var originalStatusImage: NSImage?
     private var currentFeedbackTask: Task<Void, Never>?
 
@@ -161,6 +161,7 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         updateMenuItemKeyEquivalents()
+        applyCaptureMenuState(permissionGranted: permissionManager.hasPermission)
     }
 
     private func setupMainMenu() {
@@ -217,53 +218,25 @@ final class App: NSObject, NSApplicationDelegate {
         Logger.log(.info, "Status item isVisible set to true, actual value: \(self.statusItem.isVisible)")
         Logger.log(.info, "Status item button exists: \(self.statusItem.button != nil)")
 
-        // Check if onboarding is needed
-        Logger.log(.info, "shouldShowOnboarding: \(self.onboardingManager.shouldShowOnboarding)")
-        if onboardingManager.shouldShowOnboarding {
-            Logger.log(.info, "Showing onboarding")
-            showOnboarding()
-            return
-        }
-
-        // Normal startup flow (no onboarding needed)
         Logger.log(.info, "Proceeding with normal startup")
         proceedWithNormalStartup()
     }
 
-    /// Show the onboarding wizard for first-time users
-    private func showOnboarding() {
-        if onboardingWindowController == nil {
-            onboardingWindowController = OnboardingWindowController()
-        }
-        onboardingWindowController?.showWindow(nil)
-
-        // Subscribe to onboarding completion
-        onboardingManager.$isOnboardingComplete
-            .filter { $0 }
-            .first()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.onboardingWindowController?.close()
-                self?.onboardingWindowController = nil
-                self?.proceedWithNormalStartup()
-            }
-            .store(in: &cancellables)
-    }
-
-    /// Normal startup procedure (called after onboarding or directly if not needed)
+    /// Normal startup procedure
     private func proceedWithNormalStartup() {
-        // Check permission status
-        if !permissionManager.checkPermission() {
-            // Request permission (triggers system dialog) and start polling
-            Task {
-                await permissionManager.requestPermissionAndStartMonitoring()
-            }
+        setupShortcutMonitoringIfNeeded()
 
-            // Update menu to show limited state
-            updateMenuForLimitedState()
-        } else {
+        // Check permission status
+        if permissionManager.checkPermission() {
             // Permission already granted, proceed normally
-            setupFullFunctionality()
+            onPermissionGranted()
+        } else {
+            // Keep the app in a non-blocking state and monitor silently.
+            // Permission requests are only triggered by user capture actions.
+            updateMenuForLimitedState()
+            Task {
+                await permissionManager.startMonitoringWithoutPrompt()
+            }
         }
 
         // Subscribe to permission changes
@@ -273,6 +246,8 @@ final class App: NSObject, NSApplicationDelegate {
             .sink { [weak self] granted in
                 if granted {
                     self?.onPermissionGranted()
+                } else {
+                    self?.updateMenuForLimitedState()
                 }
             }
             .store(in: &cancellables)
@@ -301,54 +276,62 @@ final class App: NSObject, NSApplicationDelegate {
 
     // MARK: - Permission Handling
 
-    /// Show a clean, minimal alert explaining the permission requirement
-    private func showPermissionRequiredAlert() {
+    /// Show a clean, minimal alert explaining the permission requirement.
+    /// Returns true when user chooses to continue with the system prompt.
+    private func showPermissionRequiredAlert() -> Bool {
         let alert = NSAlert()
         alert.messageText = Localized.permissionAlertTitle
         alert.informativeText = Localized.permissionAlertMessage
         alert.alertStyle = .informational
 
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: Localized.permissionAlertButtonContinue)
+        alert.addButton(withTitle: Localized.permissionAlertButtonOpenSystemSettings)
+        alert.addButton(withTitle: Localized.permissionAlertButtonCancel)
 
         NSApp.activate(ignoringOtherApps: true)
         let response = alert.runModal()
 
         if response == .alertSecondButtonReturn {
             permissionManager.openSystemSettings()
+            Task {
+                await permissionManager.startMonitoringWithoutPrompt()
+            }
+            return false
+        }
+
+        return response == .alertFirstButtonReturn
+    }
+
+    private func applyCaptureMenuState(permissionGranted: Bool) {
+        extractTextItem.isEnabled = true
+        extractTextItem.title = permissionGranted
+            ? Localized.menuTitleExtractText
+            : Localized.menuTitleExtractText + Localized.permissionRequired
+
+        for (index, prompt) in promptManager.prompts.enumerated() {
+            guard index < promptMenuItems.count else { continue }
+            promptMenuItems[index].isEnabled = true
+            promptMenuItems[index].title = permissionGranted
+                ? prompt.name
+                : prompt.name + Localized.permissionRequired
         }
     }
 
-    /// Update menu items to reflect limited state (no capture ability)
+    /// Update menu items to reflect limited state (permission required)
     private func updateMenuForLimitedState() {
-        extractTextItem.isEnabled = false
-        extractTextItem.title = Localized.menuTitleExtractText + Localized.permissionRequired
-
-        for item in promptMenuItems {
-            item.isEnabled = false
-        }
+        applyCaptureMenuState(permissionGranted: false)
     }
 
     /// Called when permission is granted (either immediately or after polling)
     private func onPermissionGranted() {
-        // Restore menu items
-        extractTextItem.isEnabled = true
-        extractTextItem.title = Localized.menuTitleExtractText
-
-        for item in promptMenuItems {
-            item.isEnabled = true
-        }
-
+        applyCaptureMenuState(permissionGranted: true)
         // Setup full functionality if not already done
         setupFullFunctionality()
     }
 
-    /// Setup shortcuts and observers (called after permission granted)
-    private func setupFullFunctionality() {
-        guard !isFullySetup else { return }
-        isFullySetup = true
-
-        updateMenuItemKeyEquivalents()
+    private func setupShortcutMonitoringIfNeeded() {
+        guard !isShortcutMonitoringSetup else { return }
+        isShortcutMonitoringSetup = true
 
         ShortcutMonitor.shared.startMonitoring { [weak self] action in
             switch action {
@@ -358,6 +341,14 @@ final class App: NSObject, NSApplicationDelegate {
                 self?.initiateCapture(with: PromptManager.shared.defaultPrompt)
             }
         }
+    }
+
+    /// Setup permission-dependent observers (called after permission granted)
+    private func setupFullFunctionality() {
+        guard !isFullySetup else { return }
+        isFullySetup = true
+
+        updateMenuItemKeyEquivalents()
 
         settingsManager.$textShortcut
             .receive(on: DispatchQueue.main)
@@ -418,22 +409,56 @@ final class App: NSObject, NSApplicationDelegate {
 
     // MARK: - Capture Methods
 
+    private func ensurePermissionThenCapture(
+        _ action: @escaping @MainActor () async -> Void
+    ) {
+        Task { @MainActor in
+            if permissionManager.checkPermission() {
+                onPermissionGranted()
+                await action()
+                return
+            }
+
+            guard !isRequestingPermission else {
+                Logger.log(.info, "Permission request already in progress; ignoring duplicate capture request")
+                return
+            }
+
+            guard showPermissionRequiredAlert() else {
+                return
+            }
+
+            isRequestingPermission = true
+            let granted = await permissionManager.requestPermissionInteractively()
+            isRequestingPermission = false
+
+            if granted || permissionManager.checkPermission() {
+                onPermissionGranted()
+                await action()
+            } else {
+                updateMenuForLimitedState()
+            }
+        }
+    }
+
     /// Initiate capture for Vision OCR (text extraction)
     func initiateCaptureForText() {
-        Task { @MainActor in
-            await captureViaSystemUI()
+        ensurePermissionThenCapture { [weak self] in
+            guard let self else { return }
+            await self.captureViaSystemUI()
             if let image = NSPasteboard.general.image {
-                performVisionExtraction(image: image)
+                self.performVisionExtraction(image: image)
             }
         }
     }
 
     /// Initiate capture with a specific prompt
     func initiateCapture(with prompt: Prompt) {
-        Task { @MainActor in
-            await captureViaSystemUI()
+        ensurePermissionThenCapture { [weak self] in
+            guard let self else { return }
+            await self.captureViaSystemUI()
             if let image = NSPasteboard.general.image {
-                performAIExtraction(image: image, prompt: prompt)
+                self.performAIExtraction(image: image, prompt: prompt)
             }
         }
     }

@@ -40,13 +40,6 @@
 		C1000002000000000000000A /* PromptManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000002000000000000000B /* PromptManager.swift */; };
 		C1000003000000000000000A /* PromptEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000003000000000000000B /* PromptEditorView.swift */; };
 		C1000004000000000000000A /* PromptListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000004000000000000000B /* PromptListView.swift */; };
-		C2000001000000000000000A /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001000000000000000B /* OnboardingManager.swift */; };
-		C2000002000000000000000A /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000002000000000000000B /* OnboardingWindowController.swift */; };
-		C2000003000000000000000A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000003000000000000000B /* OnboardingView.swift */; };
-		C2000004000000000000000A /* WelcomeStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000004000000000000000B /* WelcomeStepView.swift */; };
-		C2000005000000000000000A /* PermissionStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000005000000000000000B /* PermissionStepView.swift */; };
-		C2000006000000000000000A /* APIKeyStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000006000000000000000B /* APIKeyStepView.swift */; };
-		C2000007000000000000000A /* CompletionStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000007000000000000000B /* CompletionStepView.swift */; };
 		F5B0C7647A784F30BB1B71D9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C128894D5D084D2FBAADA65C /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -89,13 +82,6 @@
 		C1000003000000000000000B /* PromptEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptEditorView.swift; sourceTree = "<group>"; };
 		C1000004000000000000000B /* PromptListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptListView.swift; sourceTree = "<group>"; };
 		C128894D5D084D2FBAADA65C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		C2000001000000000000000B /* OnboardingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingManager.swift; sourceTree = "<group>"; };
-		C2000002000000000000000B /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
-		C2000003000000000000000B /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		C2000004000000000000000B /* WelcomeStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeStepView.swift; sourceTree = "<group>"; };
-		C2000005000000000000000B /* PermissionStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionStepView.swift; sourceTree = "<group>"; };
-		C2000006000000000000000B /* APIKeyStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStepView.swift; sourceTree = "<group>"; };
-		C2000007000000000000000B /* CompletionStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionStepView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -167,7 +153,6 @@
 			children = (
 				B9583C892DBD8C8300F43550 /* Extensions */,
 				C1000005000000000000000C /* Models */,
-				C2000008000000000000000C /* Onboarding */,
 				B9583C8B2DBD8C8300F43550 /* Services */,
 				B9583C902DBD8C8300F43550 /* Settings */,
 				B9583C912DBD8C8300F43550 /* App.swift */,
@@ -205,20 +190,6 @@
 				C1000001000000000000000B /* Prompt.swift */,
 			);
 			path = Models;
-			sourceTree = "<group>";
-		};
-		C2000008000000000000000C /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				C2000001000000000000000B /* OnboardingManager.swift */,
-				C2000002000000000000000B /* OnboardingWindowController.swift */,
-				C2000003000000000000000B /* OnboardingView.swift */,
-				C2000004000000000000000B /* WelcomeStepView.swift */,
-				C2000005000000000000000B /* PermissionStepView.swift */,
-				C2000006000000000000000B /* APIKeyStepView.swift */,
-				C2000007000000000000000B /* CompletionStepView.swift */,
-			);
-			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -331,13 +302,6 @@
 				C1000002000000000000000A /* PromptManager.swift in Sources */,
 				C1000003000000000000000A /* PromptEditorView.swift in Sources */,
 				C1000004000000000000000A /* PromptListView.swift in Sources */,
-				C2000001000000000000000A /* OnboardingManager.swift in Sources */,
-				C2000002000000000000000A /* OnboardingWindowController.swift in Sources */,
-				C2000003000000000000000A /* OnboardingView.swift in Sources */,
-				C2000004000000000000000A /* WelcomeStepView.swift in Sources */,
-				C2000005000000000000000A /* PermissionStepView.swift in Sources */,
-				C2000006000000000000000A /* APIKeyStepView.swift in Sources */,
-				C2000007000000000000000A /* CompletionStepView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

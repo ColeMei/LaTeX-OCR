@@ -35,7 +35,10 @@ enum Localized {
   static let menuTitleCopy = String(localized: "Copy", comment: "[Menu] Copy text to clipboard")
   static let menuTitleClearHistory = String(localized: "Clear History", comment: "[Menu] Clear capture history")
   static let permissionAlertTitle = String(localized: "Screen Recording Permission", comment: "[Alert] Permission request title")
-  static let permissionAlertMessage = String(localized: "ScreenScribe needs screen recording permission to capture screen regions.\n\nPlease grant access when prompted, or enable it in System Settings.", comment: "[Alert] Permission request message")
+  static let permissionAlertMessage = String(localized: "ScreenScribe needs Screen Recording permission to capture screen regions.\n\nContinue to request permission now, or open System Settings to enable it manually.", comment: "[Alert] Permission request message")
+  static let permissionAlertButtonContinue = String(localized: "Continue", comment: "[Alert] Continue with permission request button")
+  static let permissionAlertButtonOpenSystemSettings = String(localized: "Open System Settings", comment: "[Alert] Open system settings button")
+  static let permissionAlertButtonCancel = String(localized: "Cancel", comment: "[Alert] Cancel permission request button")
   static let permissionRequired = String(localized: " (Permission Required)", comment: "[Menu] Suffix for disabled menu items")
 }
 

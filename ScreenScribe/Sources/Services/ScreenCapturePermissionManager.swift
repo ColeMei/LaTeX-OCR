@@ -13,8 +13,6 @@ final class ScreenCapturePermissionManager: ObservableObject {
 
     /// UserDefaults keys
     private let verifiedPermissionKey = "hasVerifiedScreenRecordingPermission"
-    private let hasRequestedPermissionKey = "hasRequestedScreenRecordingPermission"
-    private let lastPromptDateKey = "lastScreenRecordingPermissionPromptDate"
 
     /// UserDefaults instance for persistence
     private let defaults = UserDefaults.standard
@@ -25,11 +23,8 @@ final class ScreenCapturePermissionManager: ObservableObject {
     /// Polling interval in seconds
     private let pollingInterval: TimeInterval = 2.0
 
-    /// Minimum time interval (in seconds) between showing the system permission dialog
-    private let popupCooldownInterval: TimeInterval = 30.0
-
-    /// Timestamp of the last time we showed the system permission dialog
-    private var lastPopupTime: Date?
+    /// Prevent overlapping async permission checks while polling
+    private var isPollingInProgress = false
 
     /// On macOS Sequoia/Tahoe and newer, permission checks can be flaky
     private var isModernMacOS: Bool {
@@ -45,7 +40,7 @@ final class ScreenCapturePermissionManager: ObservableObject {
         }
         // Note: On macOS Sequoia, this may return false even when permission is granted
         // The verification via ScreenCaptureKit will happen when explicitly requested
-        // via requestPermissionAndStartMonitoring()
+        // via startMonitoringWithoutPrompt() / requestPermissionInteractively()
     }
 
     /// Result of permission verification attempt
@@ -103,125 +98,100 @@ final class ScreenCapturePermissionManager: ObservableObject {
         return sawDefinitiveDenial ? .denied : .transientError
     }
 
-    /// Request permission and start monitoring for changes
-    func requestPermissionAndStartMonitoring(userInitiated: Bool = false) async {
-        Logger.log(.info, "Starting permission request and monitoring (userInitiated: \(userInitiated))...")
+    private func markPermissionGranted(source: String) {
+        if !hasPermission {
+            Logger.log(.info, "Screen capture permission granted (\(source))")
+        }
+        hasPermission = true
+        defaults.set(true, forKey: verifiedPermissionKey)
+        stopPolling()
+    }
+
+    /// Verify permission and keep watching for external changes without showing system dialogs.
+    func startMonitoringWithoutPrompt() async {
+        Logger.log(.info, "Starting non-interactive permission monitoring...")
+
+        if checkPermission() {
+            return
+        }
 
         // Check if user previously had permission verified successfully
-        // This is more reliable than just checking onboarding completion
         let hadPermissionBefore = defaults.bool(forKey: verifiedPermissionKey)
-        let hasRequestedBefore = defaults.bool(forKey: hasRequestedPermissionKey)
 
-        // First, check via ScreenCaptureKit with retries (more reliable on macOS Sequoia/Tahoe)
-        // CGPreflightScreenCaptureAccess can return false even when permission is granted
-        // ScreenCaptureKit can also throw errors after restart/cold boot, so we retry with linear backoff
-        // Use more attempts and longer delays if user previously had permission (likely still granted)
+        // ScreenCaptureKit can fail transiently at startup, especially on modern macOS.
+        // Use slightly stronger retry settings when user had permission before.
         let maxAttempts = hadPermissionBefore ? 8 : 5
         let baseDelay = hadPermissionBefore ? 1.5 : 1.0
         let verificationResult = await verifyPermissionViaScreenCaptureKit(maxAttempts: maxAttempts, delaySeconds: baseDelay)
 
-        // If permission verified, we're done
         if verificationResult == .granted {
-            Logger.log(.info, "Permission already granted (verified via ScreenCaptureKit with retries)")
             return
         }
 
-        // Also try CGPreflightScreenCaptureAccess as a final check before showing dialog
-        // Sometimes it works even when ScreenCaptureKit fails
         if CGPreflightScreenCaptureAccess() {
-            Logger.log(.info, "Permission detected via CGPreflightScreenCaptureAccess after ScreenCaptureKit failed")
-            hasPermission = true
-            defaults.set(true, forKey: verifiedPermissionKey)
-            stopPolling()
+            markPermissionGranted(source: "CGPreflightScreenCaptureAccess")
             return
         }
 
-        let shouldSuppressAutomaticDialog = isModernMacOS
-            && !userInitiated
-            && (hadPermissionBefore || hasRequestedBefore)
-
-        // Decision logic for showing the system permission dialog:
-        // - On modern macOS, avoid repeated automatic dialogs after initial prompt/verification
-        // - Allow explicit user-initiated checks to request again when needed
-        // - Poll silently when permission checks are likely transient
-
-        switch verificationResult {
-        case .granted:
-            // Already handled above
-            break
-
-        case .denied:
-            // User explicitly declined or revoked permission.
-            // Clear the verified flag, then either prompt or suppress based on platform/trigger.
+        if verificationResult == .denied {
             defaults.set(false, forKey: verifiedPermissionKey)
-
-            if shouldSuppressAutomaticDialog {
-                Logger.log(.info, "Suppressing automatic system dialog on modern macOS after prior prompt/verification. Polling silently.")
-                startPolling()
-            } else {
-                Logger.log(.info, "Permission was denied/revoked, showing system dialog")
-                showSystemDialogIfCooldownExpired(userInitiated: userInitiated)
-            }
-
-        case .transientError:
-            if userInitiated {
-                // Explicit user action should always be allowed to trigger a fresh system dialog.
-                // If verification still fails, clear stale "verified" state so future checks don't over-trust it.
-                Logger.log(.info, "Transient permission check failure during user-initiated recheck; showing system dialog.")
-                if hadPermissionBefore {
-                    defaults.set(false, forKey: verifiedPermissionKey)
-                }
-                showSystemDialogIfCooldownExpired(userInitiated: true)
-            } else if hadPermissionBefore || shouldSuppressAutomaticDialog {
-                // On modern macOS, permission checks can fail transiently even after prior prompt/verification.
-                // Poll silently until the system catches up instead of repeatedly showing dialogs.
-                Logger.log(.info, "Transient permission check failure; polling silently instead of showing another automatic dialog.")
-                startPolling()
-            } else {
-                // New user who never had permission, show the dialog
-                Logger.log(.info, "New user, showing system dialog")
-                showSystemDialogIfCooldownExpired(userInitiated: userInitiated)
-            }
         }
+
+        Logger.log(.info, "Permission not currently verified. Polling silently for external changes.")
+        startPolling()
     }
 
-    /// Show the system permission dialog if cooldown has expired
-    private func showSystemDialogIfCooldownExpired(userInitiated: Bool) {
-        let now = Date()
-        let shouldShowPopup: Bool
-        let persistedPopupTime = defaults.object(forKey: lastPromptDateKey) as? Date
-        let latestPopupTime = [lastPopupTime, persistedPopupTime].compactMap { $0 }.max()
+    /// Request system permission interactively (user initiated).
+    @discardableResult
+    func requestPermissionInteractively() async -> Bool {
+        Logger.log(.info, "Starting interactive permission request...")
 
-        if userInitiated {
-            shouldShowPopup = true
-        } else if let lastTime = latestPopupTime {
-            let timeSinceLastPopup = now.timeIntervalSince(lastTime)
-            shouldShowPopup = timeSinceLastPopup >= popupCooldownInterval
+        if checkPermission() {
+            return true
+        }
 
-            if !shouldShowPopup {
-                let remainingCooldown = Int(popupCooldownInterval - timeSinceLastPopup)
-                Logger.log(.info, "Skipping system dialog (cooldown active, \(remainingCooldown)s remaining)")
-            }
+        // Fast verification path to avoid prompting when permission is already available
+        // but CGPreflightScreenCaptureAccess is temporarily stale/flaky.
+        let quickVerification = await verifyPermissionViaScreenCaptureKit(maxAttempts: 2, delaySeconds: 0.25)
+        if quickVerification == .granted {
+            return true
+        }
+
+        if CGPreflightScreenCaptureAccess() {
+            markPermissionGranted(source: "CGPreflightScreenCaptureAccess interactive precheck")
+            return true
+        }
+
+        showSystemDialog()
+        if hasPermission {
+            return true
+        }
+
+        // The system may grant permission asynchronously after the prompt closes.
+        let result = await verifyPermissionViaScreenCaptureKit(maxAttempts: 3, delaySeconds: 0.5)
+        if result == .granted {
+            return true
+        }
+
+        if CGPreflightScreenCaptureAccess() {
+            markPermissionGranted(source: "CGPreflightScreenCaptureAccess after interactive prompt")
+            return true
+        }
+
+        startPolling()
+        return false
+    }
+
+    /// Show the system permission dialog for user-initiated requests.
+    private func showSystemDialog() {
+        Logger.log(.info, "Showing system permission dialog")
+        let result = CGRequestScreenCaptureAccess()
+
+        if result {
+            markPermissionGranted(source: "CGRequestScreenCaptureAccess")
         } else {
-            shouldShowPopup = true
-        }
-
-        if shouldShowPopup {
-            Logger.log(.info, "Showing system permission dialog")
-            let result = CGRequestScreenCaptureAccess()
-            hasPermission = result
-            lastPopupTime = now
-            defaults.set(true, forKey: hasRequestedPermissionKey)
-            defaults.set(now, forKey: lastPromptDateKey)
-
-            if result {
-                defaults.set(true, forKey: verifiedPermissionKey)
-                stopPolling()
-            }
-        }
-
-        // If not granted, start polling
-        if !hasPermission {
+            hasPermission = false
+            defaults.set(false, forKey: verifiedPermissionKey)
             startPolling()
         }
     }
@@ -236,13 +206,23 @@ final class ScreenCapturePermissionManager: ObservableObject {
             defaults.set(true, forKey: verifiedPermissionKey)
             return true
         }
-        // Return the cached value (may have been updated by prior ScreenCaptureKit verification)
-        return hasPermission
+
+        // On modern macOS, CGPreflightScreenCaptureAccess can temporarily return false
+        // even while permission is still valid, so avoid clearing granted state here.
+        if hasPermission {
+            Logger.log(.info, "CGPreflightScreenCaptureAccess returned false while cached permission is true; preserving state and monitoring for changes")
+            startPolling()
+            return true
+        }
+
+        return false
     }
 
     /// Start polling for permission changes
     private func startPolling() {
-        stopPolling()
+        if permissionCheckTimer != nil {
+            return
+        }
 
         permissionCheckTimer = Timer.scheduledTimer(
             withTimeInterval: pollingInterval,
@@ -258,26 +238,35 @@ final class ScreenCapturePermissionManager: ObservableObject {
     func stopPolling() {
         permissionCheckTimer?.invalidate()
         permissionCheckTimer = nil
+        isPollingInProgress = false
     }
 
     /// Single poll iteration
     private func pollPermission() async {
+        guard !isPollingInProgress else {
+            Logger.log(.info, "Skipping permission poll because previous poll is still running")
+            return
+        }
+        isPollingInProgress = true
+        defer { isPollingInProgress = false }
+
         // Try standard API first
         if CGPreflightScreenCaptureAccess() {
-            if !hasPermission {
-                hasPermission = true
-                stopPolling()
-                defaults.set(true, forKey: verifiedPermissionKey)
-                Logger.log(.info, "Screen capture permission granted (via CGPreflightScreenCaptureAccess)")
-            }
+            markPermissionGranted(source: "CGPreflightScreenCaptureAccess polling")
             return
         }
 
         // Fallback: check via ScreenCaptureKit with a couple of attempts
         // On macOS Sequoia/Tahoe, permission detection can be flaky even during polling
         let result = await verifyPermissionViaScreenCaptureKit(maxAttempts: 2, delaySeconds: 0.5)
-        if result == .granted {
+        switch result {
+        case .granted:
             Logger.log(.info, "Screen capture permission granted (via ScreenCaptureKit polling)")
+        case .denied:
+            defaults.set(false, forKey: verifiedPermissionKey)
+            hasPermission = false
+        case .transientError:
+            break
         }
     }
 

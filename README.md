@@ -87,17 +87,19 @@ Since this app is not notarized with Apple, macOS will show a security warning. 
 
 ### First Launch
 
-When you first open ScreenScribe, a setup wizard will guide you through:
-1. **Screen Recording Permission** - Required for screen capture functionality
-2. **API Key Setup** - Optional, enables AI-powered extraction (LaTeX, Markdown, custom prompts)
+ScreenScribe launches directly in your menu bar.
 
-The app will appear in your menu bar after setup is complete.
+On the first capture attempt, ScreenScribe will request **Screen Recording** permission.  
+If you deny it, you can enable it later in **System Settings > Privacy & Security > Screen Recording**.
+
+Gemini API key setup is optional and is configured from **Settings**.
 
 ## Usage
 
 **Capture:**
 * Click the menu bar icon and select "Extract Text" for offline OCR, or choose a prompt (LaTeX, Markdown, or custom)
 * Use keyboard shortcuts: **Cmd+T** for text, **Cmd+L** for your default AI prompt
+* If Screen Recording permission is missing, ScreenScribe asks for it when you trigger capture
 
 **Select Area:** Your cursor will turn into a crosshair. Click and drag to select the screen region.
 
